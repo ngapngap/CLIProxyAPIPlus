@@ -38,9 +38,12 @@ jobs:
             echo "has_updates=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Merge upstream
+      - name: Sync from upstream (exclude workflows)
         if: steps.check.outputs.has_updates == 'true'
-        run: git merge upstream/main --no-edit --allow-unrelated-histories
+        run: |
+          git checkout upstream/main -- . ':!.github/'
+          git add .
+          git commit -m "Sync from upstream (excluding workflows)" || true
 
       - name: Get version from tags
         id: version
