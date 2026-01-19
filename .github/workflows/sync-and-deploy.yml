@@ -13,29 +13,28 @@ jobs:
       HEROKU_APP_NAME: ${{ secrets.HEROKU_APP_NAME }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Heroku CLI
-        run: |
-          curl https://cli-assets.heroku.com/install.sh | sh
-          heroku --version
+        run: curl https://cli-assets.heroku.com/install-ubuntu.sh | sh
 
       - name: Login to Heroku Container Registry
-        run: |
-          echo "$HEROKU_API_KEY" | docker login --username=_ --password-stdin registry.heroku.com
+        run: echo "$HEROKU_API_KEY" | docker login --username=_ --password-stdin registry.heroku.com
 
-      - name: Build and Push to Heroku
+      - name: Build Docker Image
         run: |
-          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+          VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
           COMMIT=$(git rev-parse --short HEAD)
           BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-
           docker build \
-            --build-arg VERSION="$VERSION" \
-            --build-arg COMMIT="$COMMIT" \
-            --build-arg BUILD_DATE="$BUILD_DATE" \
+            --build-arg VERSION="${VERSION}-plus" \
+            --build-arg COMMIT="${COMMIT}" \
+            --build-arg BUILD_DATE="${BUILD_DATE}" \
             -t "registry.heroku.com/${HEROKU_APP_NAME}/web" .
 
-          docker push "registry.heroku.com/${HEROKU_APP_NAME}/web"
+      - name: Push to Heroku
+        run: docker push "registry.heroku.com/${HEROKU_APP_NAME}/web"
 
       - name: Release
         run: heroku container:release web -a "$HEROKU_APP_NAME"
