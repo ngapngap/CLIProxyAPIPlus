@@ -137,7 +137,7 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, auth *cliproxyauth.Au
 	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, false)
 	translated := sdktranslator.TranslateRequest(from, to, baseModel, bytes.Clone(req.Payload), false)
 
-	translated, err = thinking.ApplyThinking(translated, req.Model, "antigravity")
+	translated, err = thinking.ApplyThinking(translated, req.Model, from.String(), to.String())
 	if err != nil {
 		return resp, err
 	}
@@ -256,7 +256,7 @@ func (e *AntigravityExecutor) executeClaudeNonStream(ctx context.Context, auth *
 	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, true)
 	translated := sdktranslator.TranslateRequest(from, to, baseModel, bytes.Clone(req.Payload), true)
 
-	translated, err = thinking.ApplyThinking(translated, req.Model, "antigravity")
+	translated, err = thinking.ApplyThinking(translated, req.Model, from.String(), to.String())
 	if err != nil {
 		return resp, err
 	}
@@ -517,8 +517,8 @@ func (e *AntigravityExecutor) convertStreamToNonStream(stream []byte) []byte {
 		}
 		if usageResult := responseNode.Get("usageMetadata"); usageResult.Exists() {
 			usageRaw = usageResult.Raw
-		} else if usageResult := root.Get("usageMetadata"); usageResult.Exists() {
-			usageRaw = usageResult.Raw
+		} else if usageMetadataResult := root.Get("usageMetadata"); usageMetadataResult.Exists() {
+			usageRaw = usageMetadataResult.Raw
 		}
 
 		if partsResult := responseNode.Get("candidates.0.content.parts"); partsResult.IsArray() {
@@ -622,7 +622,7 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, true)
 	translated := sdktranslator.TranslateRequest(from, to, baseModel, bytes.Clone(req.Payload), true)
 
-	translated, err = thinking.ApplyThinking(translated, req.Model, "antigravity")
+	translated, err = thinking.ApplyThinking(translated, req.Model, from.String(), to.String())
 	if err != nil {
 		return nil, err
 	}
@@ -642,7 +642,6 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 			err = errReq
 			return nil, err
 		}
-
 		httpResp, errDo := httpClient.Do(httpReq)
 		if errDo != nil {
 			recordAPIResponseError(ctx, e.cfg, errDo)
@@ -803,7 +802,7 @@ func (e *AntigravityExecutor) CountTokens(ctx context.Context, auth *cliproxyaut
 	// Prepare payload once (doesn't depend on baseURL)
 	payload := sdktranslator.TranslateRequest(from, to, baseModel, bytes.Clone(req.Payload), false)
 
-	payload, err := thinking.ApplyThinking(payload, req.Model, "antigravity")
+	payload, err := thinking.ApplyThinking(payload, req.Model, from.String(), to.String())
 	if err != nil {
 		return cliproxyexecutor.Response{}, err
 	}
@@ -1004,10 +1003,10 @@ func FetchAntigravityModels(ctx context.Context, auth *cliproxyauth.Auth, cfg *c
 			case "chat_20706", "chat_23310", "gemini-2.5-flash-thinking", "gemini-3-pro-low", "gemini-2.5-pro":
 				continue
 			}
-			cfg := modelConfig[modelID]
+			modelCfg := modelConfig[modelID]
 			modelName := modelID
-			if cfg != nil && cfg.Name != "" {
-				modelName = cfg.Name
+			if modelCfg != nil && modelCfg.Name != "" {
+				modelName = modelCfg.Name
 			}
 			modelInfo := &registry.ModelInfo{
 				ID:          modelID,
@@ -1021,12 +1020,12 @@ func FetchAntigravityModels(ctx context.Context, auth *cliproxyauth.Auth, cfg *c
 				Type:        antigravityAuthType,
 			}
 			// Look up Thinking support from static config using upstream model name.
-			if cfg != nil {
-				if cfg.Thinking != nil {
-					modelInfo.Thinking = cfg.Thinking
+			if modelCfg != nil {
+				if modelCfg.Thinking != nil {
+					modelInfo.Thinking = modelCfg.Thinking
 				}
-				if cfg.MaxCompletionTokens > 0 {
-					modelInfo.MaxCompletionTokens = cfg.MaxCompletionTokens
+				if modelCfg.MaxCompletionTokens > 0 {
+					modelInfo.MaxCompletionTokens = modelCfg.MaxCompletionTokens
 				}
 			}
 			models = append(models, modelInfo)
@@ -1221,7 +1220,7 @@ func (e *AntigravityExecutor) buildRequest(ctx context.Context, auth *cliproxyau
 		payload = []byte(strJSON)
 	}
 
-	if strings.Contains(modelName, "claude") || strings.Contains(modelName, "gemini-3-pro-preview") {
+	if strings.Contains(modelName, "claude") || strings.Contains(modelName, "gemini-3-pro-high") {
 		systemInstructionPartsResult := gjson.GetBytes(payload, "request.systemInstruction.parts")
 		payload, _ = sjson.SetBytes(payload, "request.systemInstruction.role", "user")
 		payload, _ = sjson.SetBytes(payload, "request.systemInstruction.parts.0.text", systemInstruction)
