@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -418,7 +419,7 @@ func main() {
 	if isCloudDeploy {
 		if info, errStat := os.Stat(configFilePath); errStat != nil {
 			// Don't mislead: API server will not start until configuration is provided.
-			log.Info("Cloud deploy mode: No configuration file detected; standing by for configuration")
+			log.Infof("Cloud deploy mode: No configuration file detected at %s; standing by for configuration", configFilePath)
 			configFileExists = false
 		} else if info.IsDir() {
 			log.Info("Cloud deploy mode: Config path is a directory; standing by for configuration")
@@ -433,6 +434,14 @@ func main() {
 			configFileExists = true
 		}
 	}
+
+	if portStr := os.Getenv("PORT"); portStr != "" {
+		if p, errPort := strconv.Atoi(portStr); errPort == nil {
+			cfg.Port = p
+			log.Infof("Heroku/Cloud environment detected: using port %d from $PORT", cfg.Port)
+		}
+	}
+
 	usage.SetStatisticsEnabled(cfg.UsageStatisticsEnabled)
 	coreauth.SetQuotaCooldownDisabled(cfg.DisableCooling)
 
@@ -525,11 +534,10 @@ func main() {
 	} else if kiroImport {
 		cmd.DoKiroImport(cfg, options)
 	} else {
-		// In cloud deploy mode without config file, just wait for shutdown signals
+		// In cloud deploy mode without config file, we still want to start the service
+		// with default settings to avoid Heroku H14 error (No web processes running).
 		if isCloudDeploy && !configFileExists {
-			// No config file available, just wait for shutdown
-			cmd.WaitForCloudDeploy()
-			return
+			log.Info("Cloud deploy mode: No config found, starting service with default settings")
 		}
 		// Start the main proxy service
 		managementasset.StartAutoUpdater(context.Background(), configFilePath)
