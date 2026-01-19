@@ -18,43 +18,39 @@ jobs:
 
       - name: Configure Git
         run: |
-          git config user.name GitHub Actions Bot
-          git config user.email actions@github.com
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
 
       - name: Add upstream remote
-        run: |
-          git remote add upstream https://github.com/router-for-me/CLIProxyAPIPlus.git || true
+        run: git remote add upstream https://github.com/router-for-me/CLIProxyAPIPlus.git || true
 
       - name: Fetch upstream with tags
-        run: |
-          git fetch upstream --tags --force
+        run: git fetch upstream --tags --force
 
       - name: Check for updates
         id: check
         run: |
           LOCAL=$(git rev-parse HEAD)
           UPSTREAM=$(git rev-parse upstream/main)
-          if [ $LOCAL != $UPSTREAM ]; then
-            echo has_updates=true >> $GITHUB_OUTPUT
+          if [ "$LOCAL" != "$UPSTREAM" ]; then
+            echo "has_updates=true" >> $GITHUB_OUTPUT
           else
-            echo has_updates=false >> $GITHUB_OUTPUT
+            echo "has_updates=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Merge upstream
         if: steps.check.outputs.has_updates == 'true'
-        run: |
-          git merge upstream/main --no-edit --allow-unrelated-histories
+        run: git merge upstream/main --no-edit --allow-unrelated-histories
 
       - name: Get version from tags
         id: version
         run: |
-          VERSION=$(git describe --tags --always 2>/dev/null || echo dev)
-          echo version=$VERSION >> $GITHUB_OUTPUT
+          VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Push to origin
         if: steps.check.outputs.has_updates == 'true'
-        run: |
-          git push origin main --tags
+        run: git push origin main --tags --force
 
       - name: Deploy to Heroku
         if: steps.check.outputs.has_updates == 'true'
@@ -67,8 +63,8 @@ jobs:
       - name: Set version on Heroku
         if: steps.check.outputs.has_updates == 'true'
         run: |
-          curl -X PATCH https://api.heroku.com/apps/cliproxyapiplus/config-vars \
-            -H Authorization: Bearer ${{ secrets.HEROKU_API_KEY }} \
-            -H Content-Type: application/json \
-            -H Accept: application/vnd.heroku+json; version=3 \
-            -d '{APP_VERSION: ${{ steps.version.outputs.version }}}'
+          curl -X PATCH "https://api.heroku.com/apps/cliproxyapiplus/config-vars" \
+            -H "Authorization: Bearer ${{ secrets.HEROKU_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/vnd.heroku+json; version=3" \
+            -d '{"APP_VERSION": "${{ steps.version.outputs.version }}"}'
