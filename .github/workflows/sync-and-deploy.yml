@@ -12,10 +12,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Heroku CLI
-        run: sudo npm install -g heroku
-
-      - name: Verify Heroku CLI
-        run: heroku --version
+        run: |
+          curl https://cli-assets.heroku.com/install.sh | sh
+          heroku --version
 
       - name: Deploy to Heroku (Docker)
         uses: akhileshns/heroku-deploy@v3.13.15
