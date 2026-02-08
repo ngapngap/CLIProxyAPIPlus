@@ -94,7 +94,9 @@ jobs:
       - name: Build Docker Image
         id: build
         run: |
-          VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
+          RAW_VERSION=$(git describe --tags --always 2>/dev/null || echo "dev")
+          # Strip git hash suffix (e.g., v6.8.4-0-23-g7317cde → v6.8.4-0-23)
+          VERSION=$(echo "$RAW_VERSION" | sed 's/-g[0-9a-f]*$//')
           COMMIT=$(git rev-parse --short HEAD)
           BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
