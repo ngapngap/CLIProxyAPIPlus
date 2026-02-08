@@ -115,11 +115,23 @@ jobs:
           echo "${{ secrets.HEROKU_API_KEY }}" | \
             docker login --username=_ --password-stdin registry.heroku.com
 
+      - name: Validate Heroku Config
+        env:
+          APP_NAME: ${{ vars.HEROKU_APP_NAME || secrets.HEROKU_APP_NAME }}
+        run: |
+          if [ -z "$APP_NAME" ]; then
+            echo "::error::HEROKU_APP_NAME is not set. Please add it to Repository Secrets or Variables."
+            exit 1
+          fi
+          echo "✅ APP_NAME is set: ${APP_NAME}"
+
       - name: Tag and Push Image
         env:
           APP_NAME: ${{ vars.HEROKU_APP_NAME || secrets.HEROKU_APP_NAME }}
         run: |
+          echo "Tagging image for ${APP_NAME}..."
           docker tag cliproxyapiplus:latest "registry.heroku.com/${APP_NAME}/web"
+          echo "Pushing image to registry.heroku.com/${APP_NAME}/web..."
           docker push "registry.heroku.com/${APP_NAME}/web"
           echo "✅ Pushed image to registry.heroku.com/${APP_NAME}/web"
 
