@@ -18,7 +18,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const DefaultPanelGitHubRepository = "https://github.com/router-for-me/Cli-Proxy-API-Management-Center"
+const (
+	DefaultPanelGitHubRepository = "https://github.com/router-for-me/Cli-Proxy-API-Management-Center"
+	DefaultPprofAddr             = "127.0.0.1:8316"
+)
 
 // Config represents the application's configuration, loaded from a YAML file.
 type Config struct {
@@ -41,6 +44,9 @@ type Config struct {
 	// Debug enables or disables debug-level logging and other debug features.
 	Debug bool `yaml:"debug" json:"debug"`
 
+	// Pprof config controls the optional pprof HTTP debug server.
+	Pprof PprofConfig `yaml:"pprof" json:"pprof"`
+
 	// CommercialMode disables high-overhead HTTP middleware features to minimize per-request memory usage.
 	CommercialMode bool `yaml:"commercial-mode" json:"commercial-mode"`
 
@@ -50,6 +56,10 @@ type Config struct {
 	// LogsMaxTotalSizeMB limits the total size (in MB) of log files under the logs directory.
 	// When exceeded, the oldest log files are deleted until within the limit. Set to 0 to disable.
 	LogsMaxTotalSizeMB int `yaml:"logs-max-total-size-mb" json:"logs-max-total-size-mb"`
+
+	// ErrorLogsMaxFiles limits the number of error log files retained when request logging is disabled.
+	// When exceeded, the oldest error log files are deleted. Default is 10. Set to 0 to disable cleanup.
+	ErrorLogsMaxFiles int `yaml:"error-logs-max-files" json:"error-logs-max-files"`
 
 	// UsageStatisticsEnabled toggles in-memory usage aggregation; when false, usage data is discarded.
 	UsageStatisticsEnabled bool `yaml:"usage-statistics-enabled" json:"usage-statistics-enabled"`
@@ -70,11 +80,6 @@ type Config struct {
 
 	// WebsocketAuth enables or disables authentication for the WebSocket API.
 	WebsocketAuth bool `yaml:"ws-auth" json:"ws-auth"`
-
-	// CodexInstructionsEnabled controls whether official Codex instructions are injected.
-	// When false (default), CodexInstructionsForModel returns immediately without modification.
-	// When true, the original instruction injection logic is used.
-	CodexInstructionsEnabled bool `yaml:"codex-instructions-enabled" json:"codex-instructions-enabled"`
 
 	// GeminiKey defines Gemini API key configurations with optional routing overrides.
 	GeminiKey []GeminiKey `yaml:"gemini-api-key" json:"gemini-api-key"`
@@ -133,6 +138,14 @@ type TLSConfig struct {
 	Cert string `yaml:"cert" json:"cert"`
 	// Key is the path to the TLS private key file.
 	Key string `yaml:"key" json:"key"`
+}
+
+// PprofConfig holds pprof HTTP server settings.
+type PprofConfig struct {
+	// Enable toggles the pprof HTTP debug server.
+	Enable bool `yaml:"enable" json:"enable"`
+	// Addr is the host:port address for the pprof HTTP server.
+	Addr string `yaml:"addr" json:"addr"`
 }
 
 // RemoteManagement holds management API configuration under 'remote-management'.
@@ -242,6 +255,16 @@ type PayloadConfig struct {
 	Override []PayloadRule `yaml:"override" json:"override"`
 	// OverrideRaw defines rules that always set raw JSON values, overwriting any existing values.
 	OverrideRaw []PayloadRule `yaml:"override-raw" json:"override-raw"`
+	// Filter defines rules that remove parameters from the payload by JSON path.
+	Filter []PayloadFilterRule `yaml:"filter" json:"filter"`
+}
+
+// PayloadFilterRule describes a rule to remove specific JSON paths from matching model payloads.
+type PayloadFilterRule struct {
+	// Models lists model entries with name pattern and protocol constraint.
+	Models []PayloadModelRule `yaml:"models" json:"models"`
+	// Params lists JSON paths (gjson/sjson syntax) to remove from the payload.
+	Params []string `yaml:"params" json:"params"`
 }
 
 // PayloadRule describes a single rule targeting a list of models with parameter updates.
@@ -259,6 +282,25 @@ type PayloadModelRule struct {
 	Name string `yaml:"name" json:"name"`
 	// Protocol restricts the rule to a specific translator format (e.g., "gemini", "responses").
 	Protocol string `yaml:"protocol" json:"protocol"`
+}
+
+// CloakConfig configures request cloaking for non-Claude-Code clients.
+// Cloaking disguises API requests to appear as originating from the official Claude Code CLI.
+type CloakConfig struct {
+	// Mode controls cloaking behavior: "auto" (default), "always", or "never".
+	// - "auto": cloak only when client is not Claude Code (based on User-Agent)
+	// - "always": always apply cloaking regardless of client
+	// - "never": never apply cloaking
+	Mode string `yaml:"mode,omitempty" json:"mode,omitempty"`
+
+	// StrictMode controls how system prompts are handled when cloaking.
+	// - false (default): prepend Claude Code prompt to user system messages
+	// - true: strip all user system messages, keep only Claude Code prompt
+	StrictMode bool `yaml:"strict-mode,omitempty" json:"strict-mode,omitempty"`
+
+	// SensitiveWords is a list of words to obfuscate with zero-width characters.
+	// This can help bypass certain content filters.
+	SensitiveWords []string `yaml:"sensitive-words,omitempty" json:"sensitive-words,omitempty"`
 }
 
 // ClaudeKey represents the configuration for a Claude API key,
@@ -289,6 +331,9 @@ type ClaudeKey struct {
 
 	// ExcludedModels lists model IDs that should be excluded for this provider.
 	ExcludedModels []string `yaml:"excluded-models,omitempty" json:"excluded-models,omitempty"`
+
+	// Cloak configures request cloaking for non-Claude-Code clients.
+	Cloak *CloakConfig `yaml:"cloak,omitempty" json:"cloak,omitempty"`
 }
 
 func (k ClaudeKey) GetAPIKey() string  { return k.APIKey }
@@ -490,14 +535,15 @@ func LoadConfig(configFile string) (*Config, error) {
 // If optional is true and the file is missing, it returns an empty Config.
 // If optional is true and the file is empty or invalid, it returns an empty Config.
 func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
-	// Perform oauth-model-alias migration before loading config.
-	// This migrates oauth-model-mappings to oauth-model-alias if needed.
-	if migrated, err := MigrateOAuthModelAlias(configFile); err != nil {
-		// Log warning but don't fail - config loading should still work
-		fmt.Printf("Warning: oauth-model-alias migration failed: %v\n", err)
-	} else if migrated {
-		fmt.Println("Migrated oauth-model-mappings to oauth-model-alias")
-	}
+	// NOTE: Startup oauth-model-alias migration is intentionally disabled.
+	// Reason: avoid mutating config.yaml during server startup.
+	// Re-enable the block below if automatic startup migration is needed again.
+	// if migrated, err := MigrateOAuthModelAlias(configFile); err != nil {
+	// 	// Log warning but don't fail - config loading should still work
+	// 	fmt.Printf("Warning: oauth-model-alias migration failed: %v\n", err)
+	// } else if migrated {
+	// 	fmt.Println("Migrated oauth-model-mappings to oauth-model-alias")
+	// }
 
 	// Read the entire configuration file into memory.
 	data, err := os.ReadFile(configFile)
@@ -522,8 +568,11 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	cfg.Host = "" // Default empty: binds to all interfaces (IPv4 + IPv6)
 	cfg.LoggingToFile = false
 	cfg.LogsMaxTotalSizeMB = 0
+	cfg.ErrorLogsMaxFiles = 10
 	cfg.UsageStatisticsEnabled = false
 	cfg.DisableCooling = false
+	cfg.Pprof.Enable = false
+	cfg.Pprof.Addr = DefaultPprofAddr
 	cfg.AmpCode.RestrictManagementToLocalhost = false // Default to false: API key auth is sufficient
 	cfg.RemoteManagement.PanelGitHubRepository = DefaultPanelGitHubRepository
 	cfg.IncognitoBrowser = false // Default to normal browser (AWS uses incognito by force)
@@ -535,18 +584,21 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	var legacy legacyConfigData
-	if errLegacy := yaml.Unmarshal(data, &legacy); errLegacy == nil {
-		if cfg.migrateLegacyGeminiKeys(legacy.LegacyGeminiKeys) {
-			cfg.legacyMigrationPending = true
-		}
-		if cfg.migrateLegacyOpenAICompatibilityKeys(legacy.OpenAICompat) {
-			cfg.legacyMigrationPending = true
-		}
-		if cfg.migrateLegacyAmpConfig(&legacy) {
-			cfg.legacyMigrationPending = true
-		}
-	}
+	// NOTE: Startup legacy key migration is intentionally disabled.
+	// Reason: avoid mutating config.yaml during server startup.
+	// Re-enable the block below if automatic startup migration is needed again.
+	// var legacy legacyConfigData
+	// if errLegacy := yaml.Unmarshal(data, &legacy); errLegacy == nil {
+	// 	if cfg.migrateLegacyGeminiKeys(legacy.LegacyGeminiKeys) {
+	// 		cfg.legacyMigrationPending = true
+	// 	}
+	// 	if cfg.migrateLegacyOpenAICompatibilityKeys(legacy.OpenAICompat) {
+	// 		cfg.legacyMigrationPending = true
+	// 	}
+	// 	if cfg.migrateLegacyAmpConfig(&legacy) {
+	// 		cfg.legacyMigrationPending = true
+	// 	}
+	// }
 
 	// Hash remote management key if plaintext is detected (nested)
 	// We consider a value to be already hashed if it looks like a bcrypt hash ($2a$, $2b$, or $2y$ prefix).
@@ -567,8 +619,17 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 		cfg.RemoteManagement.PanelGitHubRepository = DefaultPanelGitHubRepository
 	}
 
+	cfg.Pprof.Addr = strings.TrimSpace(cfg.Pprof.Addr)
+	if cfg.Pprof.Addr == "" {
+		cfg.Pprof.Addr = DefaultPprofAddr
+	}
+
 	if cfg.LogsMaxTotalSizeMB < 0 {
 		cfg.LogsMaxTotalSizeMB = 0
+	}
+
+	if cfg.ErrorLogsMaxFiles < 0 {
+		cfg.ErrorLogsMaxFiles = 10
 	}
 
 	// Sync request authentication providers with inline API keys for backwards compatibility.
@@ -601,17 +662,20 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// Validate raw payload rules and drop invalid entries.
 	cfg.SanitizePayloadRules()
 
-	if cfg.legacyMigrationPending {
-		fmt.Println("Detected legacy configuration keys, attempting to persist the normalized config...")
-		if !optional && configFile != "" {
-			if err := SaveConfigPreserveComments(configFile, &cfg); err != nil {
-				return nil, fmt.Errorf("failed to persist migrated legacy config: %w", err)
-			}
-			fmt.Println("Legacy configuration normalized and persisted.")
-		} else {
-			fmt.Println("Legacy configuration normalized in memory; persistence skipped.")
-		}
-	}
+	// NOTE: Legacy migration persistence is intentionally disabled together with
+	// startup legacy migration to keep startup read-only for config.yaml.
+	// Re-enable the block below if automatic startup migration is needed again.
+	// if cfg.legacyMigrationPending {
+	// 	fmt.Println("Detected legacy configuration keys, attempting to persist the normalized config...")
+	// 	if !optional && configFile != "" {
+	// 		if err := SaveConfigPreserveComments(configFile, &cfg); err != nil {
+	// 			return nil, fmt.Errorf("failed to persist migrated legacy config: %w", err)
+	// 		}
+	// 		fmt.Println("Legacy configuration normalized and persisted.")
+	// 	} else {
+	// 		fmt.Println("Legacy configuration normalized in memory; persistence skipped.")
+	// 	}
+	// }
 
 	// Return the populated configuration struct.
 	return &cfg, nil
@@ -964,6 +1028,7 @@ func SaveConfigPreserveComments(configFile string, cfg *Config) error {
 	removeLegacyGenerativeLanguageKeys(original.Content[0])
 
 	pruneMappingToGeneratedKeys(original.Content[0], generated.Content[0], "oauth-excluded-models")
+	pruneMappingToGeneratedKeys(original.Content[0], generated.Content[0], "oauth-model-alias")
 
 	// Merge generated into original in-place, preserving comments/order of existing nodes.
 	mergeMappingPreserve(original.Content[0], generated.Content[0])
@@ -1454,6 +1519,16 @@ func pruneMappingToGeneratedKeys(dstRoot, srcRoot *yaml.Node, key string) {
 	}
 	srcIdx := findMapKeyIndex(srcRoot, key)
 	if srcIdx < 0 {
+		// Keep an explicit empty mapping for oauth-model-alias when it was previously present.
+		//
+		// Rationale: LoadConfig runs MigrateOAuthModelAlias before unmarshalling. If the
+		// oauth-model-alias key is missing, migration will add the default antigravity aliases.
+		// When users delete the last channel from oauth-model-alias via the management API,
+		// we want that deletion to persist across hot reloads and restarts.
+		if key == "oauth-model-alias" {
+			dstRoot.Content[dstIdx+1] = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			return
+		}
 		removeMapKey(dstRoot, key)
 		return
 	}

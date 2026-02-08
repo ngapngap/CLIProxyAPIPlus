@@ -13,6 +13,7 @@ logs/*
 conv/*
 temp/*
 refs/*
+tmp/*
 
 # Storage backends
 pgstore/*
@@ -50,3 +51,4 @@ _bmad-output/*
 # macOS
 .DS_Store
 ._*
+*.bak

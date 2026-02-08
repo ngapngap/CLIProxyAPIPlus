@@ -1,7 +1,6 @@
 package responses
 
 import (
-	"bytes"
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/translator/gemini/common"
@@ -12,7 +11,7 @@ import (
 const geminiResponsesThoughtSignature = "skip_thought_signature_validator"
 
 func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte, stream bool) []byte {
-	rawJSON := bytes.Clone(inputRawJSON)
+	rawJSON := inputRawJSON
 
 	// Note: modelName and stream parameters are part of the fixed method signature
 	_ = modelName // Unused but required by interface
@@ -298,6 +297,15 @@ func ConvertOpenAIResponsesRequestToGemini(modelName string, inputRawJSON []byte
 				}
 				functionContent, _ = sjson.SetRaw(functionContent, "parts.-1", functionResponse)
 				out, _ = sjson.SetRaw(out, "contents.-1", functionContent)
+
+			case "reasoning":
+				thoughtContent := `{"role":"model","parts":[]}`
+				thought := `{"text":"","thoughtSignature":"","thought":true}`
+				thought, _ = sjson.Set(thought, "text", item.Get("summary.0.text").String())
+				thought, _ = sjson.Set(thought, "thoughtSignature", item.Get("encrypted_content").String())
+
+				thoughtContent, _ = sjson.SetRaw(thoughtContent, "parts.-1", thought)
+				out, _ = sjson.SetRaw(out, "contents.-1", thoughtContent)
 			}
 		}
 	} else if input.Exists() && input.Type == gjson.String {

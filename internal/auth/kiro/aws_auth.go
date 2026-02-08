@@ -238,7 +238,7 @@ func (k *KiroAuth) ListAvailableModels(ctx context.Context, tokenData *KiroToken
 			Description    string  `json:"description"`
 			RateMultiplier float64 `json:"rateMultiplier"`
 			RateUnit       string  `json:"rateUnit"`
-			TokenLimits    struct {
+			TokenLimits    *struct {
 				MaxInputTokens int `json:"maxInputTokens"`
 			} `json:"tokenLimits"`
 		} `json:"models"`
@@ -250,13 +250,17 @@ func (k *KiroAuth) ListAvailableModels(ctx context.Context, tokenData *KiroToken
 
 	models := make([]*KiroModel, 0, len(result.Models))
 	for _, m := range result.Models {
+		maxInputTokens := 0
+		if m.TokenLimits != nil {
+			maxInputTokens = m.TokenLimits.MaxInputTokens
+		}
 		models = append(models, &KiroModel{
 			ModelID:        m.ModelID,
 			ModelName:      m.ModelName,
 			Description:    m.Description,
 			RateMultiplier: m.RateMultiplier,
 			RateUnit:       m.RateUnit,
-			MaxInputTokens: m.TokenLimits.MaxInputTokens,
+			MaxInputTokens: maxInputTokens,
 		})
 	}
 
@@ -280,6 +284,11 @@ func (k *KiroAuth) CreateTokenStorage(tokenData *KiroTokenData) *KiroTokenStorag
 		AuthMethod:   tokenData.AuthMethod,
 		Provider:     tokenData.Provider,
 		LastRefresh:  time.Now().Format(time.RFC3339),
+		ClientID:     tokenData.ClientID,
+		ClientSecret: tokenData.ClientSecret,
+		Region:       tokenData.Region,
+		StartURL:     tokenData.StartURL,
+		Email:        tokenData.Email,
 	}
 }
 
@@ -311,4 +320,19 @@ func (k *KiroAuth) UpdateTokenStorage(storage *KiroTokenStorage, tokenData *Kiro
 	storage.AuthMethod = tokenData.AuthMethod
 	storage.Provider = tokenData.Provider
 	storage.LastRefresh = time.Now().Format(time.RFC3339)
+	if tokenData.ClientID != "" {
+		storage.ClientID = tokenData.ClientID
+	}
+	if tokenData.ClientSecret != "" {
+		storage.ClientSecret = tokenData.ClientSecret
+	}
+	if tokenData.Region != "" {
+		storage.Region = tokenData.Region
+	}
+	if tokenData.StartURL != "" {
+		storage.StartURL = tokenData.StartURL
+	}
+	if tokenData.Email != "" {
+		storage.Email = tokenData.Email
+	}
 }

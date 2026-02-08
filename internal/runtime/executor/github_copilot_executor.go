@@ -17,6 +17,7 @@ import (
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
 	log "github.com/sirupsen/logrus"
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
@@ -119,7 +120,8 @@ func (e *GitHubCopilotExecutor) Execute(ctx context.Context, auth *cliproxyauth.
 	originalTranslated := sdktranslator.TranslateRequest(from, to, req.Model, originalPayload, false)
 	body := sdktranslator.TranslateRequest(from, to, req.Model, bytes.Clone(req.Payload), false)
 	body = e.normalizeModel(req.Model, body)
-	body = applyPayloadConfigWithRoot(e.cfg, req.Model, to.String(), "", body, originalTranslated)
+	requestedModel := payloadRequestedModel(opts, req.Model)
+	body = applyPayloadConfigWithRoot(e.cfg, req.Model, to.String(), "", body, originalTranslated, requestedModel)
 	body, _ = sjson.SetBytes(body, "stream", false)
 
 	path := githubCopilotChatPath
@@ -132,6 +134,11 @@ func (e *GitHubCopilotExecutor) Execute(ctx context.Context, auth *cliproxyauth.
 		return resp, err
 	}
 	e.applyHeaders(httpReq, apiToken)
+
+	// Add Copilot-Vision-Request header if the request contains vision content
+	if detectVisionContent(body) {
+		httpReq.Header.Set("Copilot-Vision-Request", "true")
+	}
 
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
@@ -218,7 +225,8 @@ func (e *GitHubCopilotExecutor) ExecuteStream(ctx context.Context, auth *cliprox
 	originalTranslated := sdktranslator.TranslateRequest(from, to, req.Model, originalPayload, false)
 	body := sdktranslator.TranslateRequest(from, to, req.Model, bytes.Clone(req.Payload), true)
 	body = e.normalizeModel(req.Model, body)
-	body = applyPayloadConfigWithRoot(e.cfg, req.Model, to.String(), "", body, originalTranslated)
+	requestedModel := payloadRequestedModel(opts, req.Model)
+	body = applyPayloadConfigWithRoot(e.cfg, req.Model, to.String(), "", body, originalTranslated, requestedModel)
 	body, _ = sjson.SetBytes(body, "stream", true)
 	// Enable stream options for usage stats in stream
 	if !useResponses {
@@ -235,6 +243,11 @@ func (e *GitHubCopilotExecutor) ExecuteStream(ctx context.Context, auth *cliprox
 		return nil, err
 	}
 	e.applyHeaders(httpReq, apiToken)
+
+	// Add Copilot-Vision-Request header if the request contains vision content
+	if detectVisionContent(body) {
+		httpReq.Header.Set("Copilot-Vision-Request", "true")
+	}
 
 	var authID, authLabel, authType, authValue string
 	if auth != nil {
@@ -411,6 +424,34 @@ func (e *GitHubCopilotExecutor) applyHeaders(r *http.Request, apiToken string) {
 	r.Header.Set("Openai-Intent", copilotOpenAIIntent)
 	r.Header.Set("Copilot-Integration-Id", copilotIntegrationID)
 	r.Header.Set("X-Request-Id", uuid.NewString())
+}
+
+// detectVisionContent checks if the request body contains vision/image content.
+// Returns true if the request includes image_url or image type content blocks.
+func detectVisionContent(body []byte) bool {
+	// Parse messages array
+	messagesResult := gjson.GetBytes(body, "messages")
+	if !messagesResult.Exists() || !messagesResult.IsArray() {
+		return false
+	}
+
+	// Check each message for vision content
+	for _, message := range messagesResult.Array() {
+		content := message.Get("content")
+
+		// If content is an array, check each content block
+		if content.IsArray() {
+			for _, block := range content.Array() {
+				blockType := block.Get("type").String()
+				// Check for image_url or image type
+				if blockType == "image_url" || blockType == "image" {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
 }
 
 // normalizeModel is a no-op as GitHub Copilot accepts model names directly.

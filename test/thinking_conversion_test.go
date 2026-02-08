@@ -2,6 +2,7 @@ package test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,12 +15,14 @@ import (
 	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/thinking/provider/gemini"
 	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/thinking/provider/geminicli"
 	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/thinking/provider/iflow"
+	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/thinking/provider/kimi"
 	_ "github.com/router-for-me/CLIProxyAPI/v6/internal/thinking/provider/openai"
 
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/thinking"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // thinkingTestCase represents a common test case structure for both suffix and body tests.
@@ -2707,8 +2710,11 @@ func runThinkingTests(t *testing.T, cases []thinkingTestCase) {
 				[]byte(tc.inputJSON),
 				true,
 			)
+			if applyTo == "claude" {
+				body, _ = sjson.SetBytes(body, "max_tokens", 200000)
+			}
 
-			body, err := thinking.ApplyThinking(body, tc.model, tc.from, applyTo)
+			body, err := thinking.ApplyThinking(body, tc.model, tc.from, applyTo, applyTo)
 
 			if tc.expectErr {
 				if err == nil {
@@ -2774,12 +2780,18 @@ func runThinkingTests(t *testing.T, cases []thinkingTestCase) {
 
 			// Verify clear_thinking for iFlow GLM models when enable_thinking=true
 			if tc.to == "iflow" && tc.expectField == "chat_template_kwargs.enable_thinking" && tc.expectValue == "true" {
+				baseModel := thinking.ParseSuffix(tc.model).ModelName
+				isGLM := strings.HasPrefix(strings.ToLower(baseModel), "glm")
 				ctVal := gjson.GetBytes(body, "chat_template_kwargs.clear_thinking")
-				if !ctVal.Exists() {
-					t.Fatalf("expected clear_thinking field not found for GLM model, body=%s", string(body))
-				}
-				if ctVal.Bool() != false {
-					t.Fatalf("clear_thinking: expected false, got %v, body=%s", ctVal.Bool(), string(body))
+				if isGLM {
+					if !ctVal.Exists() {
+						t.Fatalf("expected clear_thinking field not found for GLM model, body=%s", string(body))
+					}
+					if ctVal.Bool() != false {
+						t.Fatalf("clear_thinking: expected false, got %v, body=%s", ctVal.Bool(), string(body))
+					}
+				} else if ctVal.Exists() {
+					t.Fatalf("expected no clear_thinking field for non-GLM enable_thinking model, body=%s", string(body))
 				}
 			}
 		})
