@@ -105,7 +105,7 @@ jobs:
           echo "  Commit: ${COMMIT}"
           echo "  Build Date: ${BUILD_DATE}"
 
-          docker build \
+          DOCKER_BUILDKIT=0 docker build \
             --build-arg VERSION="${VERSION}" \
             --build-arg COMMIT="${COMMIT}" \
             --build-arg BUILD_DATE="${BUILD_DATE}" \
