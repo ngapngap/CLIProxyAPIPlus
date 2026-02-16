@@ -91,6 +91,11 @@ jobs:
       - name: Fetch tags
         run: git fetch --tags
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker
+
       - name: Build Docker Image
         id: build
         run: |
@@ -105,7 +110,10 @@ jobs:
           echo "  Commit: ${COMMIT}"
           echo "  Build Date: ${BUILD_DATE}"
 
-          DOCKER_BUILDKIT=0 docker build \
+          docker buildx build \
+            --provenance=false \
+            --sbom=false \
+            --load \
             --build-arg VERSION="${VERSION}" \
             --build-arg COMMIT="${COMMIT}" \
             --build-arg BUILD_DATE="${BUILD_DATE}" \
