@@ -30,7 +30,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote add upstream https://github.com/router-for-me/CLIProxyAPIPlus.git || true
-          git fetch upstream main --tags
+          git fetch upstream main --tags --force
 
           # Check if there are updates
           LOCAL=$(git rev-parse HEAD)
