@@ -39,7 +39,7 @@ jobs:
           if [ "$LOCAL" != "$UPSTREAM" ]; then
             echo "has_updates=true" >> $GITHUB_OUTPUT
             git merge upstream/main --allow-unrelated-histories -m "Sync from upstream" || true
-            git push origin main --tags
+            git push origin main --tags --force
           else
             echo "has_updates=false" >> $GITHUB_OUTPUT
             echo "No updates from upstream"
