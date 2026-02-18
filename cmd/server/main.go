@@ -444,6 +444,12 @@ func main() {
 		if p, errPort := strconv.Atoi(portStr); errPort == nil {
 			cfg.Port = p
 			log.Infof("Heroku/Cloud environment detected: using port %d from $PORT", cfg.Port)
+			// In Heroku/cloud environments, binding to localhost causes router H21 (backend connection refused).
+			host := strings.TrimSpace(strings.ToLower(cfg.Host))
+			if host == "127.0.0.1" || host == "localhost" || host == "::1" {
+				log.Warnf("Cloud environment detected with localhost host=%q; overriding host to all interfaces", cfg.Host)
+				cfg.Host = ""
+			}
 		}
 	}
 
